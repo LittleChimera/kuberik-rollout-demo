@@ -47,20 +47,16 @@ Override with `GITHUB_OWNER`, `REPO_URL`, `GITHUB_BRANCH` env vars if needed.
 
 ### Watch it roll
 
-The **dashboard UI** shows rollouts, history, gates, and health checks:
+kind maps the ports through, so both are reachable with no `port-forward`:
 
-```bash
-kubectl -n kuberik-system port-forward svc/rollout-dashboard 8081:80
-open http://localhost:8081
-```
+- **Dashboard UI** (rollouts, history, gates, health checks): <http://localhost:8081>
+- **Demo app** (shows the deployed version): <http://localhost:8080>
 
 Or from the CLI:
 
 ```bash
 kubectl -n demo get rollout demo -w      # rollout phases
 kubectl -n demo get pods -L version      # pods labelled with the running version
-kubectl -n demo port-forward svc/demo 8080:80
-open http://localhost:8080               # the page shows the deployed version
 ```
 
 ### Ship a new version

@@ -106,10 +106,13 @@ metadata:
   name: rollout-dashboard
   namespace: kuberik-system
 spec:
+  # NodePort so kind's host port mapping (localhost:8081) reaches it directly.
+  type: NodePort
   ports:
   - port: 80
     protocol: TCP
     targetPort: 8080
+    nodePort: 30081
   selector:
     app: rollout-dashboard
 ---

@@ -5,9 +5,12 @@ metadata:
   labels:
     app: demo
 spec:
+  # NodePort so kind's host port mapping (localhost:8080) reaches it directly.
+  type: NodePort
   selector:
     app: demo
   ports:
     - name: http
       port: 80
       targetPort: http
+      nodePort: 30080

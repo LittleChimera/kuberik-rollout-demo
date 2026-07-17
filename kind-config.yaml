@@ -1,0 +1,15 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+# Map host ports to NodePort Services so the app and dashboard are reachable at
+# http://localhost:<port> with no `kubectl port-forward`.
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # demo app  -> Service demo (NodePort 30080)
+      - containerPort: 30080
+        hostPort: 8080
+        protocol: TCP
+      # dashboard -> Service rollout-dashboard (NodePort 30081)
+      - containerPort: 30081
+        hostPort: 8081
+        protocol: TCP

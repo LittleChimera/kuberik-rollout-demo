@@ -59,7 +59,7 @@ if kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
   log "kind cluster '${CLUSTER_NAME}' already exists"
 else
   log "creating kind cluster '${CLUSTER_NAME}'"
-  kind create cluster --name "$CLUSTER_NAME"
+  kind create cluster --name "$CLUSTER_NAME" --config "${REPO_ROOT}/kind-config.yaml"
 fi
 kubectl config use-context "kind-${CLUSTER_NAME}" >/dev/null
 
@@ -112,13 +112,9 @@ $(printf '\033[1;32m✔ setup complete\033[0m')
     kubectl -n demo get imagepolicy demo
     kubectl -n demo get pods -L version
 
-  Open the dashboard UI:
-    kubectl -n kuberik-system port-forward svc/rollout-dashboard 8081:80
-    open http://localhost:8081
-
-  Open the app:
-    kubectl -n demo port-forward svc/demo 8080:80
-    open http://localhost:8080
+  Dashboard UI:  http://localhost:8081
+  Demo app:      http://localhost:8080
+  (mapped straight through kind — no port-forward needed)
 
   Promote a new version: push a git tag (v1.0.1) — CI publishes the image,
   Flux detects it, and the Rollout rolls it out automatically.
