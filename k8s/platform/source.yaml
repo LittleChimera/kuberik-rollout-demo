@@ -1,0 +1,43 @@
+# GitOps source + Kustomization for the demo app.
+#
+# Flux pulls this repo, renders k8s/app, and applies it into the `demo`
+# namespace. The image tag is injected via postBuild substitution:
+#   - GITHUB_OWNER : static, set once at setup time
+#   - APP_VERSION  : owned by the kuberik Rollout named `demo` (see the
+#                    rollout.kuberik.com/substitute annotation). The Rollout
+#                    patches this value to promote a new release.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: demo
+  namespace: demo
+spec:
+  interval: 1m
+  url: ${REPO_URL}
+  ref:
+    branch: ${GITHUB_BRANCH}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: demo
+  namespace: demo
+  annotations:
+    rollout.kuberik.com/substitute.APP_VERSION.from: "demo"
+spec:
+  interval: 1m
+  retryInterval: 20s
+  prune: true
+  wait: true
+  timeout: 3m
+  targetNamespace: demo
+  sourceRef:
+    kind: GitRepository
+    name: demo
+  path: ./k8s/app
+  postBuild:
+    substitute:
+      GITHUB_OWNER: "${GITHUB_OWNER}"
+      # Placeholder until the Rollout promotes the first release.
+      APP_VERSION: "unset"

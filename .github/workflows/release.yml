@@ -1,0 +1,60 @@
+name: release
+
+# Publish a new demo image whenever a semver tag (v1.2.3) is pushed.
+# The image lands at ghcr.io/<owner>/kuberik-rollout-demo and is tagged with
+# the bare semver (1.2.3), which is what the Flux ImagePolicy selects on.
+on:
+  push:
+    tags:
+      - "v*"
+  # Manual builds for iterating without cutting a git tag.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 1.2.3)"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/kuberik-rollout-demo
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            # refs/tags/v1.2.3 -> 1.2.3
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./app
+          push: true
+          build-args: |
+            VERSION=${{ steps.v.outputs.version }}
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.v.outputs.version }}
+            ${{ env.IMAGE }}:latest
+
+      - name: Summary
+        run: |
+          echo "Pushed \`${{ env.IMAGE }}:${{ steps.v.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,35 @@
+# The kuberik Rollout ties it together: it reads available releases from the
+# ImagePolicy, waits for its HealthChecks to pass, bakes, and then promotes the
+# new version by patching the Flux Kustomization's APP_VERSION substitution.
+---
+apiVersion: kuberik.com/v1alpha1
+kind: Rollout
+metadata:
+  name: demo
+  namespace: demo
+spec:
+  releasesImagePolicy:
+    name: demo
+  versionHistoryLimit: 10
+  # Hold a freshly deployed version under observation before declaring success.
+  bakeTime: 20s
+  # Fail the rollout if health checks don't go green within this window.
+  deployTimeout: 5m
+  healthCheckSelector:
+    selector:
+      matchLabels:
+        app: demo
+---
+# Ties rollout success to the Flux Kustomization actually reconciling healthy.
+apiVersion: kuberik.com/v1alpha1
+kind: HealthCheck
+metadata:
+  name: demo-kustomization
+  namespace: demo
+  labels:
+    app: demo
+  annotations:
+    healthcheck.kuberik.com/kustomization: "demo"
+    kuberik.com/display-name: "Flux Deployment"
+spec:
+  class: "kustomization"

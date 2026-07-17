@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo
+  labels:
+    app: demo
+spec:
+  replicas: 2
+  # Slow the rollout down a touch so it is watchable in the dashboard / CLI.
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: demo
+  template:
+    metadata:
+      labels:
+        app: demo
+        # This label makes the running version visible on the pods themselves.
+        version: "${APP_VERSION}"
+    spec:
+      containers:
+        - name: demo
+          # ${APP_VERSION} is substituted by the Flux Kustomization's
+          # postBuild.substitute, which the kuberik Rollout drives.
+          image: ghcr.io/${GITHUB_OWNER}/kuberik-rollout-demo:${APP_VERSION}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: VERSION
+              value: "${APP_VERSION}"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
