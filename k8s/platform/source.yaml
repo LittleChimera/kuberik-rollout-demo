@@ -27,10 +27,14 @@ metadata:
     rollout.kuberik.com/substitute.APP_VERSION.from: "demo"
 spec:
   interval: 1m
-  retryInterval: 20s
+  retryInterval: 15s
   prune: true
-  wait: true
-  timeout: 3m
+  # Deliberately NOT `wait: true`: the kuberik HealthCheck (class: kustomization)
+  # is the health gate — it checks the managed resources' health independently.
+  # Flux's own blocking wait would stall the one-time bootstrap render (before
+  # the Rollout has set APP_VERSION) on an un-pullable image and push the
+  # Rollout past its deployTimeout.
+  wait: false
   targetNamespace: demo
   sourceRef:
     kind: GitRepository
@@ -39,5 +43,7 @@ spec:
   postBuild:
     substitute:
       GITHUB_OWNER: "${GITHUB_OWNER}"
-      # Placeholder until the Rollout promotes the first release.
-      APP_VERSION: "unset"
+      # NOTE: APP_VERSION is intentionally absent here. It is owned solely by the
+      # Rollout `demo` (via the rollout.kuberik.com/substitute annotation above),
+      # which patches it to promote a release. Keeping it out of this manifest
+      # means re-running setup.sh never clobbers the promoted version.

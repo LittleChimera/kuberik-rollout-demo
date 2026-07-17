@@ -16,19 +16,20 @@ spec:
       labels:
         app: demo
         # This label makes the running version visible on the pods themselves.
-        version: "${APP_VERSION}"
+        version: "${APP_VERSION:=unset}"
     spec:
       containers:
         - name: demo
           # ${APP_VERSION} is substituted by the Flux Kustomization's
-          # postBuild.substitute, which the kuberik Rollout drives.
-          image: ghcr.io/${GITHUB_OWNER}/kuberik-rollout-demo:${APP_VERSION}
+          # postBuild.substitute, which the kuberik Rollout drives. Until the
+          # Rollout promotes the first release it defaults to "unset".
+          image: ghcr.io/${GITHUB_OWNER}/kuberik-rollout-demo:${APP_VERSION:=unset}
           ports:
             - name: http
               containerPort: 8080
           env:
             - name: VERSION
-              value: "${APP_VERSION}"
+              value: "${APP_VERSION:=unset}"
           readinessProbe:
             httpGet:
               path: /healthz

@@ -84,9 +84,12 @@ if [ -n "${GHCR_TOKEN:-}" ]; then
     --dry-run=client -o yaml | kubectl apply -f -
 fi
 
+# Server-side apply so re-running setup.sh never clobbers the APP_VERSION that
+# the Rollout owns on the Kustomization (a different field manager).
 for f in image.yaml source.yaml rollout.yaml; do
   envsubst '${GITHUB_OWNER} ${REPO_URL} ${GITHUB_BRANCH}' \
-    < "${REPO_ROOT}/k8s/platform/${f}" | kubectl apply -f -
+    < "${REPO_ROOT}/k8s/platform/${f}" \
+    | kubectl apply --server-side --force-conflicts -f -
 done
 
 log "waiting for the Rollout to promote the first release..."
