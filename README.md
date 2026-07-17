@@ -47,6 +47,15 @@ Override with `GITHUB_OWNER`, `REPO_URL`, `GITHUB_BRANCH` env vars if needed.
 
 ### Watch it roll
 
+The **dashboard UI** shows rollouts, history, gates, and health checks:
+
+```bash
+kubectl -n kuberik-system port-forward svc/rollout-dashboard 8081:80
+open http://localhost:8081
+```
+
+Or from the CLI:
+
 ```bash
 kubectl -n demo get rollout demo -w      # rollout phases
 kubectl -n demo get pods -L version      # pods labelled with the running version
@@ -70,7 +79,7 @@ health check + bake time, and promotes it. The browser page flips to `v1.0.1`.
 | `app/` | the demo web app (shows its baked-in version) + `Dockerfile` |
 | `.github/workflows/release.yml` | build & push `ghcr.io/<owner>/kuberik-rollout-demo:<semver>` on tag `v*` |
 | `k8s/app/` | app manifests Flux renders (`${APP_VERSION}` filled in by the Rollout) |
-| `k8s/platform/` | GitOps source, image scanning, and the kuberik `Rollout` |
+| `k8s/platform/` | GitOps source, image scanning, the kuberik `Rollout`, and the dashboard UI |
 | `rollout-controller/install.yaml` | pinned kuberik rollout-controller (`ghcr.io/kuberik/rollout-controller:v0.8.0`) |
 | `scripts/setup.sh` / `teardown.sh` | one-command cluster up / down |
 

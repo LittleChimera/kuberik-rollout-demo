@@ -1,0 +1,175 @@
+# Optional read-only web UI for the demo (published kuberik dashboard image).
+# Access: kubectl -n kuberik-system port-forward svc/rollout-dashboard 8081:80
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: rollout-dashboard
+  name: rollout-dashboard
+  namespace: kuberik-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app: rollout-dashboard
+  name: rollout-dashboard-rollouts-patch
+rules:
+- apiGroups:
+  - rollouts.kruise.io
+  resources:
+  - rollouts
+  - rollouts/status
+  verbs:
+  - patch
+  - update
+- apiGroups:
+  - rollout.kuberik.com
+  resources:
+  - rollouttests/status
+  verbs:
+  - update
+  - patch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app: rollout-dashboard
+  name: rollout-dashboard-view
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: rollout-dashboard
+  name: rollout-dashboard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rollout-controller-manager-role
+subjects:
+- kind: ServiceAccount
+  name: rollout-dashboard
+  namespace: kuberik-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: rollout-dashboard
+  name: rollout-dashboard-rollouts-patch
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rollout-dashboard-rollouts-patch
+subjects:
+- kind: ServiceAccount
+  name: rollout-dashboard
+  namespace: kuberik-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: rollout-dashboard
+  name: rollout-dashboard-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rollout-dashboard-view
+subjects:
+- kind: ServiceAccount
+  name: rollout-dashboard
+  namespace: kuberik-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: rollout-dashboard
+  name: rollout-dashboard
+  namespace: kuberik-system
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    app: rollout-dashboard
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: rollout-dashboard
+  name: rollout-dashboard
+  namespace: kuberik-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rollout-dashboard
+  template:
+    metadata:
+      labels:
+        app: rollout-dashboard
+    spec:
+      containers:
+      - env:
+        - name: CLUSTER_NAME
+          valueFrom:
+            configMapKeyRef:
+              key: name
+              name: kuberik-cluster-info
+              optional: true
+        - name: DASHBOARD_URL
+          valueFrom:
+            configMapKeyRef:
+              key: url
+              name: kuberik-cluster-info
+              optional: true
+        - name: INSECURE_SKIP_TLS_VERIFY
+          valueFrom:
+            configMapKeyRef:
+              key: insecureSkipTLSVerify
+              name: kuberik-cluster-info
+              optional: true
+        - name: HUB_URL
+          valueFrom:
+            configMapKeyRef:
+              key: hubUrl
+              name: kuberik-cluster-info
+              optional: true
+        - name: GITHUB_APP_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: clientId
+              name: github-app-credentials
+              optional: true
+        - name: GITHUB_APP_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: clientSecret
+              name: github-app-credentials
+              optional: true
+        image: ghcr.io/kuberik/rollout-dashboard:v0.8.6
+        name: rollout-dashboard
+        ports:
+        - containerPort: 8080
+      serviceAccountName: rollout-dashboard

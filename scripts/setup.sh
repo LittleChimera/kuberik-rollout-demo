@@ -92,11 +92,16 @@ for f in image.yaml source.yaml rollout.yaml; do
     | kubectl apply --server-side --force-conflicts -f -
 done
 
+# Read-only web UI (published kuberik dashboard image, into kuberik-system).
+log "installing the rollout dashboard UI"
+kubectl apply -f "${REPO_ROOT}/k8s/platform/dashboard.yaml"
+
 log "waiting for the Rollout to promote the first release..."
 if ! kubectl -n demo wait --for=create deploy/demo --timeout=180s 2>/dev/null; then
   log "deployment not created yet — the Rollout is still selecting/gating a release"
 fi
 kubectl -n demo rollout status deploy/demo --timeout=240s || true
+kubectl -n kuberik-system rollout status deploy/rollout-dashboard --timeout=120s || true
 
 cat <<EOF
 
@@ -106,6 +111,10 @@ $(printf '\033[1;32m✔ setup complete\033[0m')
     kubectl -n demo get rollout demo -w
     kubectl -n demo get imagepolicy demo
     kubectl -n demo get pods -L version
+
+  Open the dashboard UI:
+    kubectl -n kuberik-system port-forward svc/rollout-dashboard 8081:80
+    open http://localhost:8081
 
   Open the app:
     kubectl -n demo port-forward svc/demo 8080:80
