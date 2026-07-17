@@ -12,6 +12,8 @@
 #   REPO_URL         https git URL Flux clones      (default: from git remote)
 #   GITHUB_BRANCH    branch Flux tracks             (default: main)
 #   GHCR_TOKEN       PAT for a PRIVATE ghcr package (default: empty = public package)
+#   APP_HOST_PORT    host port -> demo app          (default: 8080)
+#   DASH_HOST_PORT   host port -> dashboard UI      (default: 8081)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,6 +21,9 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 CLUSTER_NAME="${CLUSTER_NAME:-kuberik-demo}"
 GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
+APP_HOST_PORT="${APP_HOST_PORT:-8080}"
+DASH_HOST_PORT="${DASH_HOST_PORT:-8081}"
+export APP_HOST_PORT DASH_HOST_PORT
 ROLLOUT_CONTROLLER_MANIFEST="${REPO_ROOT}/rollout-controller/install.yaml"
 
 log() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
@@ -58,8 +63,9 @@ log "owner=${GITHUB_OWNER}  repo=${REPO_URL}  branch=${GITHUB_BRANCH}"
 if kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
   log "kind cluster '${CLUSTER_NAME}' already exists"
 else
-  log "creating kind cluster '${CLUSTER_NAME}'"
-  kind create cluster --name "$CLUSTER_NAME" --config "${REPO_ROOT}/kind-config.yaml"
+  log "creating kind cluster '${CLUSTER_NAME}' (app:${APP_HOST_PORT} dashboard:${DASH_HOST_PORT})"
+  envsubst '${APP_HOST_PORT} ${DASH_HOST_PORT}' < "${REPO_ROOT}/kind-config.yaml" \
+    | kind create cluster --name "$CLUSTER_NAME" --config -
 fi
 kubectl config use-context "kind-${CLUSTER_NAME}" >/dev/null
 
@@ -112,8 +118,8 @@ $(printf '\033[1;32m✔ setup complete\033[0m')
     kubectl -n demo get imagepolicy demo
     kubectl -n demo get pods -L version
 
-  Dashboard UI:  http://localhost:8081
-  Demo app:      http://localhost:8080
+  Dashboard UI:  http://localhost:${DASH_HOST_PORT}
+  Demo app:      http://localhost:${APP_HOST_PORT}
   (mapped straight through kind — no port-forward needed)
 
   Promote a new version: push a git tag (v1.0.1) — CI publishes the image,

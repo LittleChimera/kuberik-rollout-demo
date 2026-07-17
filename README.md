@@ -52,6 +52,8 @@ kind maps the ports through, so both are reachable with no `port-forward`:
 - **Dashboard UI** (rollouts, history, gates, health checks): <http://localhost:8081>
 - **Demo app** (shows the deployed version): <http://localhost:8080>
 
+(If 8080/8081 are taken, run setup with `APP_HOST_PORT=8090 DASH_HOST_PORT=8091 ./scripts/setup.sh`.)
+
 Or from the CLI:
 
 ```bash
