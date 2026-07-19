@@ -45,18 +45,18 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./app
-          push: true
-          # Single-arch image with plain manifest so the OCI annotations below
-          # land where the rollout-controller reads them.
           provenance: false
           build-args: |
             VERSION=${{ steps.v.outputs.version }}
           tags: |
             ${{ steps.v.outputs.image }}:${{ steps.v.outputs.version }}
-          # The rollout-controller reads org.opencontainers.image.revision and
-          # records it as the release's git SHA. The environment-controller then
-          # uses that SHA as the ref when reporting to GitHub Deployments, which
-          # is what drives dev -> staging -> prod promotion.
+          # oci-mediatypes=true is required for the annotations below to land on
+          # the manifest. The rollout-controller reads
+          # org.opencontainers.image.revision and records it as the release's git
+          # SHA; the environment-controller then uses that SHA as the ref when
+          # reporting to GitHub Deployments, which drives dev->staging->prod
+          # promotion.
+          outputs: type=image,oci-mediatypes=true,push=true
           annotations: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
