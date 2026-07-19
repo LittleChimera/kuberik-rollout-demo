@@ -118,7 +118,7 @@ spec:
     name: demo-manifests
   versionHistoryLimit: 10
   bakeTime: 20s
-  deployTimeout: 5m
+  deployTimeout: 30m
   healthCheckSelector:
     selector:
       matchLabels:
@@ -134,7 +134,7 @@ spec:
     name: demo-app
   versionHistoryLimit: 10
   bakeTime: 20s
-  deployTimeout: 5m
+  deployTimeout: 30m
   healthCheckSelector:
     selector:
       matchLabels:

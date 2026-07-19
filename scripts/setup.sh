@@ -104,7 +104,10 @@ metadata:
 spec:
   rolloutRef:
     name: demo-app
-  name: "demo-${env}"
+  # NOTE: 'name' MUST be identical across all envs — the environment-controller
+  # correlates related environments by the GitHub deployment "task", which is
+  # derived from this name. Only 'environment' differs per env.
+  name: "demo"
   environment: "${env}"
   backend:
     type: "github"

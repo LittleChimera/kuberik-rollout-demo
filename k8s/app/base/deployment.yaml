@@ -8,6 +8,10 @@ spec:
   replicas: 2
   # Slow the rollout down a touch so it is watchable in the dashboard / CLI.
   minReadySeconds: 10
+  # In a gated env the app version isn't set until promotion, so the bootstrap
+  # Deployment (image :unset) may sit un-pullable for a while. Keep it in
+  # "Progressing" (not hard-failed) so it doesn't wedge the shared HealthCheck.
+  progressDeadlineSeconds: 1800
   selector:
     matchLabels:
       app: demo
