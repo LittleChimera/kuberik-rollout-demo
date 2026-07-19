@@ -1,0 +1,12 @@
+# Base app manifests. Env overlays (../envs/{dev,staging,prod}) set the
+# namespace, replica count, and Service nodePort.
+#
+# This base is what CI packages (per env) into an OCI manifests artifact via
+# `flux push artifact`. The ${APP_VERSION} / ${GITHUB_OWNER} placeholders are
+# filled in later by the Flux Kustomization's postBuild substitution (driven by
+# the app Rollout) — kustomize passes them through untouched.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml

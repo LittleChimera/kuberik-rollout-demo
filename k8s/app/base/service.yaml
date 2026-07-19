@@ -5,7 +5,8 @@ metadata:
   labels:
     app: demo
 spec:
-  # NodePort so kind's host port mapping (localhost:8080) reaches it directly.
+  # NodePort so kind's host port mapping reaches it directly. Each env overlay
+  # patches nodePort to a unique value (dev 30080 / staging 30082 / prod 30083).
   type: NodePort
   selector:
     app: demo

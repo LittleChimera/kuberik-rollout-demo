@@ -1,0 +1,69 @@
+name: manifests-release
+
+# Publish per-env MANIFESTS OCI artifacts when a manifests-v* tag is pushed
+# (e.g. manifests-v1.0.0). This is the "manifests" version stream, driven by the
+# demo-manifests Rollout. Each env overlay is rendered and pushed to
+#   oci://ghcr.io/<owner>/kuberik-rollout-demo/<env>/manifests:<version>
+on:
+  push:
+    tags:
+      - "manifests-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Manifests version to build (e.g. 1.0.0)"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ github.event.inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#manifests-v}"   # manifests-v1.0.0 -> 1.0.0
+          fi
+          owner="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "owner=${owner}" >> "$GITHUB_OUTPUT"
+
+      - name: Install flux CLI
+        uses: fluxcd/flux2/action@main
+
+      - name: Install kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Render and push per-env manifests artifacts
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          OWNER: ${{ steps.v.outputs.owner }}
+        run: |
+          set -euo pipefail
+          for env in dev staging prod; do
+            out="$(mktemp -d)"
+            kustomize build "k8s/app/envs/${env}" -o "$out"
+            flux push artifact \
+              "oci://ghcr.io/${OWNER}/kuberik-rollout-demo/${env}/manifests:${VERSION}" \
+              --path "$out" \
+              --source="${{ github.repositoryUrl }}" \
+              --revision="${{ github.sha }}"
+            echo "Pushed ${env}/manifests:${VERSION}" >> "$GITHUB_STEP_SUMMARY"
+          done

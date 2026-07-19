@@ -1,0 +1,17 @@
+# staging overlay — packaged by CI into the staging manifests OCI artifact.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo-staging
+resources:
+  - ../../base
+patches:
+  - target: { kind: Deployment, name: demo }
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 2
+  - target: { kind: Service, name: demo }
+    patch: |
+      - op: replace
+        path: /spec/ports/0/nodePort
+        value: 30082

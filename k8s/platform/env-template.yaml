@@ -1,0 +1,154 @@
+# Per-environment platform wiring for ONE environment (${ENV}).
+# setup.sh renders this once per env (dev/staging/prod) with envsubst:
+#   ${ENV}          -> dev | staging | prod
+#   ${GITHUB_OWNER} -> ghcr / GitHub owner
+#
+# Two independent rollouts drive this environment:
+#   • demo-manifests — picks a MANIFESTS version and patches the OCIRepository
+#     tag (the packaged k8s manifests published by CI on `manifests-v*` tags).
+#   • demo-app       — picks an IMAGE version and patches the Kustomization's
+#     APP_VERSION substitution (the app image published on `app-v*` tags).
+#
+# The app Rollout is additionally gated by an Environment (see setup.sh) so a
+# version only reaches staging after dev, and prod after staging.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-${ENV}
+---
+# --- image scanning: app image (shared across all envs) ----------------------
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: demo-app
+  namespace: demo-${ENV}
+spec:
+  image: ghcr.io/${GITHUB_OWNER}/kuberik-rollout-demo
+  interval: 1m
+  secretRef:
+    name: github-registry-credentials
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: demo-app
+  namespace: demo-${ENV}
+spec:
+  imageRepositoryRef:
+    name: demo-app
+  policy:
+    semver:
+      range: ">=0.0.1"
+---
+# --- image scanning: per-env manifests artifact ------------------------------
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: demo-manifests
+  namespace: demo-${ENV}
+spec:
+  image: ghcr.io/${GITHUB_OWNER}/kuberik-rollout-demo/${ENV}/manifests
+  interval: 1m
+  secretRef:
+    name: github-registry-credentials
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: demo-manifests
+  namespace: demo-${ENV}
+spec:
+  imageRepositoryRef:
+    name: demo-manifests
+  policy:
+    semver:
+      range: ">=0.0.1"
+---
+# --- GitOps source: manifests OCI artifact (tag driven by demo-manifests) -----
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: demo
+  namespace: demo-${ENV}
+  annotations:
+    # The demo-manifests Rollout owns .spec.ref.tag (promotes a manifests version).
+    rollout.kuberik.com/rollout: "demo-manifests"
+spec:
+  interval: 1m
+  url: oci://ghcr.io/${GITHUB_OWNER}/kuberik-rollout-demo/${ENV}/manifests
+  secretRef:
+    name: github-registry-credentials
+  # NOTE: .spec.ref is intentionally omitted — the Rollout adds it. Until then
+  # the source is not ready, which is expected during first bootstrap.
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: demo
+  namespace: demo-${ENV}
+  annotations:
+    # The demo-app Rollout owns the APP_VERSION substitution (promotes an image).
+    rollout.kuberik.com/substitute.APP_VERSION.from: "demo-app"
+spec:
+  interval: 1m
+  retryInterval: 15s
+  prune: true
+  # The kuberik HealthCheck is the health gate (see below); Flux's own blocking
+  # wait would stall the bootstrap render on an un-pullable image.
+  wait: false
+  sourceRef:
+    kind: OCIRepository
+    name: demo
+  path: ./
+  postBuild:
+    substitute:
+      GITHUB_OWNER: "${GITHUB_OWNER}"
+      # APP_VERSION is owned solely by the demo-app Rollout (defaulted to
+      # "unset" via ${APP_VERSION:=unset} in the app manifests).
+---
+# --- rollouts ----------------------------------------------------------------
+apiVersion: kuberik.com/v1alpha1
+kind: Rollout
+metadata:
+  name: demo-manifests
+  namespace: demo-${ENV}
+spec:
+  releasesImagePolicy:
+    name: demo-manifests
+  versionHistoryLimit: 10
+  bakeTime: 20s
+  deployTimeout: 5m
+  healthCheckSelector:
+    selector:
+      matchLabels:
+        app: demo
+---
+apiVersion: kuberik.com/v1alpha1
+kind: Rollout
+metadata:
+  name: demo-app
+  namespace: demo-${ENV}
+spec:
+  releasesImagePolicy:
+    name: demo-app
+  versionHistoryLimit: 10
+  bakeTime: 20s
+  deployTimeout: 5m
+  healthCheckSelector:
+    selector:
+      matchLabels:
+        app: demo
+---
+apiVersion: kuberik.com/v1alpha1
+kind: HealthCheck
+metadata:
+  name: demo-kustomization
+  namespace: demo-${ENV}
+  labels:
+    app: demo
+  annotations:
+    healthcheck.kuberik.com/kustomization: "demo"
+    kuberik.com/display-name: "Flux Deployment"
+spec:
+  class: "kustomization"

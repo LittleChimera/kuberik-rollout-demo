@@ -1,17 +1,15 @@
-name: release
+name: app-release
 
-# Publish a new demo image whenever a semver tag (v1.2.3) is pushed.
-# The image lands at ghcr.io/<owner>/kuberik-rollout-demo and is tagged with
-# the bare semver (1.2.3), which is what the Flux ImagePolicy selects on.
+# Publish a new APP IMAGE when an app-v* tag is pushed (e.g. app-v1.0.1).
+# This is the "image" version stream, driven by the demo-app Rollout.
 on:
   push:
     tags:
-      - "v*"
-  # Manual builds for iterating without cutting a git tag.
+      - "app-v*"
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (e.g. 1.2.3)"
+        description: "App version to build (e.g. 1.0.1)"
         required: true
 
 permissions:
@@ -30,10 +28,8 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             version="${{ github.event.inputs.version }}"
           else
-            # refs/tags/v1.2.3 -> 1.2.3
-            version="${GITHUB_REF_NAME#v}"
+            version="${GITHUB_REF_NAME#app-v}"   # app-v1.0.1 -> 1.0.1
           fi
-          # ghcr requires a lowercase repository name.
           owner="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "image=ghcr.io/${owner}/kuberik-rollout-demo" >> "$GITHUB_OUTPUT"
@@ -54,8 +50,5 @@ jobs:
             VERSION=${{ steps.v.outputs.version }}
           tags: |
             ${{ steps.v.outputs.image }}:${{ steps.v.outputs.version }}
-            ${{ steps.v.outputs.image }}:latest
 
-      - name: Summary
-        run: |
-          echo "Pushed \`${{ steps.v.outputs.image }}:${{ steps.v.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+      - run: echo "Pushed \`${{ steps.v.outputs.image }}:${{ steps.v.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"

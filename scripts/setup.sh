@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
-# Set up a single kind cluster running the kuberik rollout demo.
+# Set up the kuberik multi-environment rollout demo on a single kind cluster.
 #
-#   1. create a kind cluster
+#   1. create a kind cluster (host ports mapped to each env's app + dashboard)
 #   2. install Flux (+ image-reflector-controller)
-#   3. install the kuberik rollout-controller
-#   4. wire up the demo app (GitOps source + Rollout + image scanning)
+#   3. install the kuberik rollout-controller and environment-controller
+#   4. wire up dev / staging / prod, each with TWO rollouts:
+#        • demo-manifests — promotes the packaged manifests (OCIRepository tag)
+#        • demo-app       — promotes the app image (Kustomization substitution)
+#      dev -> staging -> prod promotion is gated by Environment resources.
 #
 # Config via environment variables (all optional):
 #   CLUSTER_NAME     kind cluster name              (default: kuberik-demo)
 #   GITHUB_OWNER     ghcr / GitHub owner            (default: from `gh`/git remote)
-#   REPO_URL         https git URL Flux clones      (default: from git remote)
-#   GITHUB_BRANCH    branch Flux tracks             (default: main)
-#   GHCR_TOKEN       PAT for a PRIVATE ghcr package (default: empty = public package)
-#   APP_HOST_PORT    host port -> demo app          (default: 8080)
-#   DASH_HOST_PORT   host port -> dashboard UI      (default: 8081)
+#   REPO_URL         https git URL                  (default: from git remote)
+#   REPO_PROJECT     owner/repo for GitHub backend  (default: from git remote)
+#   GITHUB_BRANCH    branch / ref                   (default: main)
+#   GITHUB_TOKEN     token for ghcr pull + backend  (default: `gh auth token`)
+#   BASE_PORT        first host port                (default: 8080)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,50 +24,54 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 CLUSTER_NAME="${CLUSTER_NAME:-kuberik-demo}"
 GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
-APP_HOST_PORT="${APP_HOST_PORT:-8080}"
-DASH_HOST_PORT="${DASH_HOST_PORT:-8081}"
-export APP_HOST_PORT DASH_HOST_PORT
-ROLLOUT_CONTROLLER_MANIFEST="${REPO_ROOT}/rollout-controller/install.yaml"
+BASE_PORT="${BASE_PORT:-8080}"
+ENVIRONMENTS="dev staging prod"
+
+# Host ports derived from BASE_PORT (dev / dashboard / staging / prod).
+DEV_PORT="$BASE_PORT"
+DASH_PORT="$((BASE_PORT + 1))"
+STAGING_PORT="$((BASE_PORT + 2))"
+PROD_PORT="$((BASE_PORT + 3))"
+export DEV_PORT DASH_PORT STAGING_PORT PROD_PORT
 
 log() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 # --- preflight ---------------------------------------------------------------
-for tool in kind kubectl flux docker envsubst; do
+for tool in kind kubectl flux docker envsubst gh; do
   command -v "$tool" >/dev/null 2>&1 || die "'$tool' not found in PATH"
 done
 
-# --- resolve owner / repo ----------------------------------------------------
-if [ -z "${GITHUB_OWNER:-}" ]; then
-  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    GITHUB_OWNER="$(gh api user --jq .login 2>/dev/null || true)"
-  fi
-  if [ -z "${GITHUB_OWNER:-}" ] && git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
-    GITHUB_OWNER="$(git -C "$REPO_ROOT" remote get-url origin | sed -E 's#.*[:/]([^/]+)/[^/]+$#\1#')"
-  fi
+# --- resolve owner / repo / token --------------------------------------------
+if [ -z "${GITHUB_OWNER:-}" ] && gh auth status >/dev/null 2>&1; then
+  GITHUB_OWNER="$(gh api user --jq .login 2>/dev/null || true)"
+fi
+if [ -z "${GITHUB_OWNER:-}" ] && git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
+  GITHUB_OWNER="$(git -C "$REPO_ROOT" remote get-url origin | sed -E 's#.*[:/]([^/]+)/[^/]+$#\1#')"
 fi
 [ -n "${GITHUB_OWNER:-}" ] || die "could not determine GITHUB_OWNER; set it explicitly"
-GITHUB_OWNER="$(printf '%s' "$GITHUB_OWNER" | tr '[:upper:]' '[:lower:]')"
 
-if [ -z "${REPO_URL:-}" ]; then
-  if git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
-    REPO_URL="$(git -C "$REPO_ROOT" remote get-url origin \
-      | sed -E 's#^git@github.com:#https://github.com/#; s#\.git$##').git"
-  else
-    REPO_URL="https://github.com/${GITHUB_OWNER}/kuberik-rollout-demo.git"
-  fi
+if [ -z "${REPO_PROJECT:-}" ] && git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
+  REPO_PROJECT="$(git -C "$REPO_ROOT" remote get-url origin \
+    | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
 fi
+REPO_PROJECT="${REPO_PROJECT:-${GITHUB_OWNER}/kuberik-rollout-demo}"
 
-export GITHUB_OWNER REPO_URL GITHUB_BRANCH
+# ghcr repository names must be lowercase; GitHub API project is case-insensitive.
+GITHUB_OWNER="$(printf '%s' "$GITHUB_OWNER" | tr '[:upper:]' '[:lower:]')"
+export GITHUB_OWNER
 
-log "owner=${GITHUB_OWNER}  repo=${REPO_URL}  branch=${GITHUB_BRANCH}"
+GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}"
+[ -n "$GITHUB_TOKEN" ] || die "no GITHUB_TOKEN and 'gh auth token' failed"
+
+log "owner=${GITHUB_OWNER}  project=${REPO_PROJECT}  ports=${DEV_PORT}/${DASH_PORT}/${STAGING_PORT}/${PROD_PORT}"
 
 # --- 1. kind cluster ---------------------------------------------------------
 if kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
   log "kind cluster '${CLUSTER_NAME}' already exists"
 else
-  log "creating kind cluster '${CLUSTER_NAME}' (app:${APP_HOST_PORT} dashboard:${DASH_HOST_PORT})"
-  envsubst '${APP_HOST_PORT} ${DASH_HOST_PORT}' < "${REPO_ROOT}/kind-config.yaml" \
+  log "creating kind cluster '${CLUSTER_NAME}'"
+  envsubst '${DEV_PORT} ${DASH_PORT} ${STAGING_PORT} ${PROD_PORT}' < "${REPO_ROOT}/kind-config.yaml" \
     | kind create cluster --name "$CLUSTER_NAME" --config -
 fi
 kubectl config use-context "kind-${CLUSTER_NAME}" >/dev/null
@@ -73,55 +80,80 @@ kubectl config use-context "kind-${CLUSTER_NAME}" >/dev/null
 log "installing Flux (+ image-reflector-controller)"
 flux install --components-extra=image-reflector-controller
 
-# --- 3. rollout-controller ---------------------------------------------------
+# --- 3. controllers ----------------------------------------------------------
 log "installing kuberik rollout-controller"
-kubectl apply --server-side -f "$ROLLOUT_CONTROLLER_MANIFEST"
+kubectl apply --server-side -f "${REPO_ROOT}/rollout-controller/install.yaml"
+log "installing kuberik environment-controller"
+kubectl apply --server-side -f "${REPO_ROOT}/environment-controller/install.yaml"
 kubectl -n kuberik-system rollout status deploy/rollout-controller-controller-manager --timeout=180s
+kubectl -n kuberik-system rollout status deploy/environment-controller-manager --timeout=180s
 
-# --- 4. demo app -------------------------------------------------------------
-log "applying demo namespace + platform wiring"
-kubectl apply -f "${REPO_ROOT}/k8s/platform/namespace.yaml"
+# --- 4. per-environment wiring ----------------------------------------------
+apply_environment() {
+  # $1 = env, $2 = upstream env ("" for the root/dev environment)
+  local env="$1" upstream="$2" rel=""
+  if [ -n "$upstream" ]; then
+    rel=$'\n  relationship:\n    environment: '"${upstream}"$'\n    type: After'
+  fi
+  kubectl apply --server-side -f - <<EOF
+apiVersion: environments.kuberik.com/v1alpha1
+kind: Environment
+metadata:
+  name: demo-app
+  namespace: demo-${env}
+spec:
+  rolloutRef:
+    name: demo-app
+  name: "demo-${env}"
+  environment: "${env}"
+  ref: "${GITHUB_BRANCH}"
+  backend:
+    type: "github"
+    project: "${REPO_PROJECT}"
+    secret: "github-token"${rel}
+EOF
+}
 
-# Optional pull/scan secret for a PRIVATE ghcr package.
-if [ -n "${GHCR_TOKEN:-}" ]; then
-  log "creating ghcr auth secret (private package mode)"
-  kubectl -n demo create secret docker-registry ghcr-auth \
-    --docker-server=ghcr.io --docker-username="$GITHUB_OWNER" --docker-password="$GHCR_TOKEN" \
-    --dry-run=client -o yaml | kubectl apply -f -
-fi
-
-# Server-side apply so re-running setup.sh never clobbers the APP_VERSION that
-# the Rollout owns on the Kustomization (a different field manager).
-for f in image.yaml source.yaml rollout.yaml; do
-  envsubst '${GITHUB_OWNER} ${REPO_URL} ${GITHUB_BRANCH}' \
-    < "${REPO_ROOT}/k8s/platform/${f}" \
+upstream=""
+for env in $ENVIRONMENTS; do
+  log "wiring environment '${env}'"
+  ENV="$env" envsubst '${ENV} ${GITHUB_OWNER}' < "${REPO_ROOT}/k8s/platform/env-template.yaml" \
     | kubectl apply --server-side --force-conflicts -f -
+
+  # ghcr pull creds (private manifests packages) + backend token, per namespace.
+  kubectl -n "demo-${env}" create secret docker-registry github-registry-credentials \
+    --docker-server=ghcr.io --docker-username="$GITHUB_OWNER" --docker-password="$GITHUB_TOKEN" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl -n "demo-${env}" create secret generic github-token \
+    --from-literal=token="$GITHUB_TOKEN" --dry-run=client -o yaml | kubectl apply -f -
+  kubectl -n "demo-${env}" patch serviceaccount default \
+    -p '{"imagePullSecrets":[{"name":"github-registry-credentials"}]}'
+
+  apply_environment "$env" "$upstream"
+  upstream="$env"
 done
 
-# Read-only web UI (published kuberik dashboard image, into kuberik-system).
+# --- 5. dashboard ------------------------------------------------------------
 log "installing the rollout dashboard UI"
 kubectl apply -f "${REPO_ROOT}/k8s/platform/dashboard.yaml"
-
-log "waiting for the Rollout to promote the first release..."
-if ! kubectl -n demo wait --for=create deploy/demo --timeout=180s 2>/dev/null; then
-  log "deployment not created yet — the Rollout is still selecting/gating a release"
-fi
-kubectl -n demo rollout status deploy/demo --timeout=240s || true
 kubectl -n kuberik-system rollout status deploy/rollout-dashboard --timeout=120s || true
 
 cat <<EOF
 
 $(printf '\033[1;32m✔ setup complete\033[0m')
 
-  Watch the rollout:
-    kubectl -n demo get rollout demo -w
-    kubectl -n demo get imagepolicy demo
-    kubectl -n demo get pods -L version
+  Dashboard UI:   http://localhost:${DASH_PORT}
+  dev app:        http://localhost:${DEV_PORT}
+  staging app:    http://localhost:${STAGING_PORT}
+  prod app:       http://localhost:${PROD_PORT}
 
-  Dashboard UI:  http://localhost:${DASH_HOST_PORT}
-  Demo app:      http://localhost:${APP_HOST_PORT}
-  (mapped straight through kind — no port-forward needed)
+  Watch the two rollouts per env:
+    kubectl -n demo-dev get rollout
+    kubectl get rollout -A -w
 
-  Promote a new version: push a git tag (v1.0.1) — CI publishes the image,
-  Flux detects it, and the Rollout rolls it out automatically.
+  Publish releases (two independent streams):
+    git tag app-v1.0.1       && git push origin app-v1.0.1        # new image
+    git tag manifests-v1.0.1 && git push origin manifests-v1.0.1  # new manifests
+
+  Promotion is gated dev -> staging -> prod by the Environment resources.
 EOF

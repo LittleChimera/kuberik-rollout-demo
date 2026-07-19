@@ -1,9 +1,0 @@
-# Rendered by the Flux Kustomization `demo` (see k8s/platform/source.yaml).
-# The ${APP_VERSION} / ${GITHUB_OWNER} placeholders are filled in by Flux
-# postBuild substitution, NOT by kustomize — kustomize passes them through.
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-namespace: demo
-resources:
-  - deployment.yaml
-  - service.yaml
