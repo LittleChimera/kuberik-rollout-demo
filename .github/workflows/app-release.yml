@@ -22,6 +22,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The default docker builder emits Docker v2 manifests and ignores OCI
+      # annotations; the container driver from setup-buildx supports them.
+      - uses: docker/setup-buildx-action@v3
+
       - name: Resolve version and image
         id: v
         run: |
