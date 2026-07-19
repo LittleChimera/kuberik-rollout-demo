@@ -43,18 +43,20 @@ for tool in kind kubectl flux docker envsubst gh; do
 done
 
 # --- resolve owner / repo / token --------------------------------------------
-if [ -z "${GITHUB_OWNER:-}" ] && gh auth status >/dev/null 2>&1; then
-  GITHUB_OWNER="$(gh api user --jq .login 2>/dev/null || true)"
-fi
-if [ -z "${GITHUB_OWNER:-}" ] && git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
-  GITHUB_OWNER="$(git -C "$REPO_ROOT" remote get-url origin | sed -E 's#.*[:/]([^/]+)/[^/]+$#\1#')"
-fi
-[ -n "${GITHUB_OWNER:-}" ] || die "could not determine GITHUB_OWNER; set it explicitly"
-
+# Owner is derived from the REPO (git remote) — that's where CI publishes the
+# images/manifests — NOT from the authenticated user running setup.
 if [ -z "${REPO_PROJECT:-}" ] && git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
   REPO_PROJECT="$(git -C "$REPO_ROOT" remote get-url origin \
     | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
 fi
+if [ -z "${GITHUB_OWNER:-}" ] && [ -n "${REPO_PROJECT:-}" ]; then
+  GITHUB_OWNER="${REPO_PROJECT%%/*}"
+fi
+# Last resort: fall back to the authenticated user.
+if [ -z "${GITHUB_OWNER:-}" ] && gh auth status >/dev/null 2>&1; then
+  GITHUB_OWNER="$(gh api user --jq .login 2>/dev/null || true)"
+fi
+[ -n "${GITHUB_OWNER:-}" ] || die "could not determine GITHUB_OWNER; set it explicitly"
 REPO_PROJECT="${REPO_PROJECT:-${GITHUB_OWNER}/kuberik-rollout-demo}"
 
 # ghcr repository names must be lowercase; GitHub API project is case-insensitive.
