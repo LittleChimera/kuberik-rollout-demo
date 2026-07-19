@@ -106,7 +106,6 @@ spec:
     name: demo-app
   name: "demo-${env}"
   environment: "${env}"
-  ref: "${GITHUB_BRANCH}"
   backend:
     type: "github"
     project: "${REPO_PROJECT}"
